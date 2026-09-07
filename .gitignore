@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.nohup
+.DS_Store
+._*
+node_modules/
+test-results/
+.superpowers/

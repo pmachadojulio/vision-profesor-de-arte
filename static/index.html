@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profesor de Arte · Vision</title>
+  <script async src="https://docs.opencv.org/4.8.0/opencv.js" id="opencv-js"></script>
+  <style>
+    :root { --bg:#101010; --card:#1a1a1a; --line:#34312d; --text:#f4f0e8; --muted:#b5aea4; --accent:#e8d5b5; }
+    * { box-sizing:border-box; font-family:Inter,system-ui,sans-serif; } body { margin:0; background:var(--bg); color:var(--text); }
+    header, main { max-width:1200px; margin:auto; width:100%; } header { padding:16px; display:flex; gap:12px; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); }
+    h1 { font-size:1.1rem; margin:0; } .badge, small, .hint { color:var(--muted); font-size:.8rem; }
+    main { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr); gap:16px; padding:16px; } .card { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    .video-wrap { position:relative; aspect-ratio:4 / 3; background:#000; } video, .grid-canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; } .grid-canvas { pointer-events:none; }
+    .corner-handle { position:absolute; width:22px; height:22px; border:2px solid var(--accent); border-radius:50%; background:#151515; transform:translate(-50%,-50%); display:none; touch-action:none; } .corner-handle.active { display:block; }
+    .controls, .chat { padding:14px; display:flex; flex-direction:column; gap:12px; } .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    input, select, textarea, button { min-height:42px; border:1px solid var(--line); border-radius:9px; padding:9px; background:#111; color:var(--text); } input, select, textarea { flex:1; min-width:130px; } textarea { width:100%; min-height:72px; }
+    button { cursor:pointer; font-weight:650; } button.primary { color:#17130d; background:var(--accent); border-color:var(--accent); }
+    .detect-controls { padding:10px 14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--line); } .snapshot { width:100%; max-height:240px; object-fit:contain; background:#000; border-radius:9px; }
+    .msgs { display:flex; flex-direction:column; gap:10px; overflow:auto; max-height:72vh; min-height:340px; } .msg { border:1px solid var(--line); border-radius:10px; padding:11px; line-height:1.45; } .msg.user { border-color:#7c694f; }
+    .critique-card section { margin-bottom:10px; } .critique-card p { margin:3px 0 0; } .critique-card details { margin-top:8px; }
+    @media (max-width:850px) { main { grid-template-columns:1fr; } .msgs { min-height:260px; } }
+    #toastContainer { position:fixed; bottom:24px; right:24px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+    .toast { pointer-events:auto; padding:12px 18px; border-radius:10px; font-size:.85rem; line-height:1.35; max-width:380px; opacity:0; transform:translateY(12px); transition:opacity .25s,transform .25s; color:#fff; }
+    .toast.show { opacity:1; transform:translateY(0); }
+    .toast.info { background:#2563eb; } .toast.warn { background:#d97706; } .toast.error { background:#dc2626; } .toast.ok { background:#16a34a; }
+    .quality-badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:.75rem; font-weight:600; margin-left:6px; }
+    .quality-ok { background:#16a34a33; color:#4ade80; } .quality-warn { background:#d9770633; color:#fbbf24; } .quality-fail { background:#dc262633; color:#f87171; }
+  </style>
+</head>
+<body>
+  <header><h1>Profesor de Arte · Vision</h1><span id="health" class="badge">verificando servicio</span></header>
+  <main>
+    <section class="card">
+      <div id="videoWrap" class="video-wrap"><video id="video" autoplay playsinline muted></video><canvas id="gridCanvas" class="grid-canvas"></canvas><canvas id="overlayCanvas" class="grid-canvas" style="z-index:2;"></canvas><div id="cornerHandles" role="group" aria-label="Esquinas del lienzo — usá flechas para mover"><div class="corner-handle" data-i="0" tabindex="0" role="slider" aria-label="Esquina superior izquierda" aria-valuetext="x 0.12, y 0.12"></div><div class="corner-handle" data-i="1" tabindex="0" role="slider" aria-label="Esquina superior derecha" aria-valuetext="x 0.88, y 0.12"></div><div class="corner-handle" data-i="2" tabindex="0" role="slider" aria-label="Esquina inferior derecha" aria-valuetext="x 0.88, y 0.88"></div><div class="corner-handle" data-i="3" tabindex="0" role="slider" aria-label="Esquina inferior izquierda" aria-valuetext="x 0.12, y 0.88"></div></div></div>
+      <div class="detect-controls"><button id="toggleDetect" type="button">Auto</button><button id="selectManual" type="button">Seleccionar lienzo</button><button id="confirmManual" type="button">Confirmar</button><button id="resetCorners" type="button">Reset</button><span id="detectStatus" class="hint">OpenCV cargando</span></div>
+      <div class="controls">
+        <div class="row"><select id="medium" aria-label="Medio"><option value="unknown">Medio</option><option value="oil">Óleo</option><option value="acrylic">Acrílico</option><option value="watercolor">Acuarela</option></select><select id="stage" aria-label="Etapa"><option value="unknown">Etapa</option><option value="sketch">Encaje</option><option value="block-in">Mancha</option><option value="modelling">Modelado</option><option value="edges-detail">Bordes y detalle</option><option value="finish">Terminación</option></select><select id="critiqueMode" aria-label="Modo"><option value="next_brushstroke">Próxima pincelada</option><option value="deep">Crítica profunda</option></select></div>
+        <input id="intention" aria-label="Intención" placeholder="Intención o foco de esta sesión">
+        <div class="row"><select id="style" aria-label="Dirección de estilo"><option value="libre">Modo libre</option><option value="andrew_cadima">Andrew Cadima</option><option value="rembrandt">Rembrandt</option><option value="sorolla">Sorolla</option><option value="zorn">Zorn</option></select><select id="referencePurpose" aria-label="Uso de referencia"><option value="">Sin referencia</option><option value="composition">Composición</option><option value="value">Valores</option><option value="color">Color</option><option value="edges">Bordes</option><option value="handling">Pincelada</option></select><select id="interval" aria-label="Intervalo automático"><option value="0">Manual</option><option value="8000">Auto 8 s</option><option value="12000">Auto 12 s</option><option value="20000">Auto 20 s</option></select></div>
+        <textarea id="prompt" aria-label="Pedido para el profesor" placeholder="Contale qué buscás resolver en esta captura."></textarea>
+        <div class="row"><input id="refInput" type="file" accept="image/*" aria-label="Referencia"><button id="clearRef" type="button" hidden>Quitar referencia</button></div><img id="refPreview" hidden alt="Vista previa de referencia" class="snapshot"><label class="hint"><input id="useRef" type="checkbox" checked> Usar referencia</label>
+        <div class="row"><input id="apikey" type="password" aria-label="Clave API local" placeholder="Clave opcional para el backend local"><button id="saveKey" type="button">Guardar</button></div>
+        <div class="row"><button id="startCam" type="button">Activar cámara</button><button id="capture" type="button" class="primary">Analizar lienzo</button><button id="retake" type="button" title="Retomar último frame">Retomar</button><button id="toggleAuto" type="button">Auto</button><button id="pauseAuto" type="button" hidden>Pausar</button><button id="speak" type="button">Voz</button></div><div class="row"><span id="status" class="hint">cámara apagada</span><span id="counter" class="hint">0 análisis</span></div><img id="snapshotPreview" hidden alt="Snapshot exacto enviado al análisis" class="snapshot"><small id="captureDiagnostics" aria-live="polite"></small>
+      </div>
+    </section>
+    <section class="card chat"><div class="row"><strong>Feedback del profesor</strong><button id="clear" type="button">Limpiar</button></div><div id="msgs" class="msgs" aria-live="polite"></div><div class="row"><input id="chatInput" aria-label="Pregunta pedagógica" placeholder="Hacé una pregunta sobre tu pintura"><button id="send" type="button" class="primary">Enviar</button></div></section>
+  </main>
+  <canvas id="canvas" hidden></canvas>
+  <div id="toastContainer" aria-live="polite"></div>
+  <div id="qualityBadgeContainer" style="display:none;position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9998;">
+    <span id="qualityBadge" class="quality-badge"></span>
+  </div>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "vision-profesor-de-arte",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "pytest",
+    "test:e2e": "npx playwright test",
+    "test:e2e:headed": "npx playwright test --headed",
+    "dev": "uvicorn app:app --reload --port 8000"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}
