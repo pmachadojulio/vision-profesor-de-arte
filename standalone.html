@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Profesor de Arte · Vision</title>
+<style>
+:root{--bg:#101010;--card:#1a1a1a;--line:#34312d;--text:#f4f0e8;--muted:#b5aea4;--accent:#e8d5b5}
+*{box-sizing:border-box;font-family:Inter,system-ui,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text);min-height:100dvh;display:flex;flex-direction:column}
+header{padding:12px 16px;display:flex;gap:10px;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);flex-shrink:0}
+h1{font-size:1.05rem;margin:0}
+.badge{color:var(--muted);font-size:.78rem}
+main{flex:1;display:grid;grid-template-columns:1fr;gap:12px;padding:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+@media(min-width:860px){main{grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);padding:16px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.video-wrap{position:relative;aspect-ratio:4/3;background:#000;max-height:50vh}
+@media(min-width:860px){.video-wrap{max-height:none}}
+video,canvas.overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+canvas.overlay{pointer-events:none;z-index:2}
+.controls,.chat{padding:12px;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+input,select,textarea,button{min-height:40px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#111;color:var(--text);font-size:.9rem}
+input,select,textarea{flex:1;min-width:100px}
+textarea{width:100%;min-height:60px;resize:vertical}
+button{cursor:pointer;font-weight:650}
+button.primary{color:#17130d;background:var(--accent);border-color:var(--accent)}
+.snapshot{width:100%;max-height:200px;object-fit:contain;background:#000;border-radius:9px}
+.msgs{display:flex;flex-direction:column;gap:10px;overflow:auto;max-height:60vh;min-height:200px;padding:4px 0}
+.msg{border:1px solid var(--line);border-radius:10px;padding:10px;line-height:1.45;font-size:.88rem}
+.msg.user{border-color:#7c694f}
+.msg .label{font-weight:700;color:var(--accent);font-size:.82rem;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px}
+.msg section{margin-bottom:8px}
+.msg section:last-child{margin-bottom:0}
+.msg p{margin:2px 0 0}
+.hint{color:var(--muted);font-size:.78rem}
+#toastContainer{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;padding:10px 16px;border-radius:10px;font-size:.82rem;color:#fff;opacity:0;transform:translateY(10px);transition:opacity .25s,transform .25s}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.info{background:#2563eb}.toast.warn{background:#d97706}.toast.error{background:#dc2626}.toast.ok{background:#16a34a}
+.apikey-bar{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.apikey-bar input{flex:1}
+.no-camera{text-align:center;padding:40px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Profesor de Arte · Vision</h1>
+  <span id="health" class="badge">iniciando…</span>
+</header>
+
+<div id="apikeyBar" class="apikey-bar">
+  <input id="apikey" type="password" placeholder="Gemini API Key (gratis: aistudio.google.com/app/apikey)" aria-label="API Key">
+  <button id="saveKey" type="button" class="primary">Guardar</button>
+</div>
+
+<main>
+  <section class="card">
+    <div id="videoWrap" class="video-wrap">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlayCanvas" class="overlay"></canvas>
+    </div>
+    <div class="controls">
+      <div class="row">
+        <select id="style" aria-label="Estilo">
+          <option value="libre">Modo libre</option>
+          <option value="andrew_cadima">Andrew Cadima</option>
+          <option value="rembrandt">Rembrandt</option>
+          <option value="sorolla">Sorolla</option>
+          <option value="zorn">Zorn</option>
+        </select>
+        <select id="critiqueMode" aria-label="Modo">
+          <option value="next_brushstroke">Próxima pincelada</option>
+          <option value="deep">Crítica profunda</option>
+        </select>
+        <select id="interval" aria-label="Intervalo">
+          <option value="0">Manual</option>
+          <option value="8000">Auto 8 s</option>
+          <option value="12000" selected>Auto 12 s</option>
+          <option value="20000">Auto 20 s</option>
+        </select>
+      </div>
+      <textarea id="prompt" placeholder="Contale qué buscás resolver en esta captura."></textarea>
+      <div class="row">
+        <button id="startCam" type="button">Activar cámara</button>
+        <button id="capture" type="button" class="primary">Analizar lienzo</button>
+        <button id="toggleAuto" type="button">Auto</button>
+        <button id="speak" type="button">Voz</button>
+      </div>
+      <div class="row">
+        <span id="status" class="hint">cámara apagada</span>
+        <span id="counter" class="hint">0 análisis</span>
+      </div>
+      <img id="snapshotPreview" hidden class="snapshot" alt="Última captura">
+    </div>
+  </section>
+
+  <section class="card chat">
+    <div class="row"><strong>Feedback del profesor</strong><button id="clear" type="button">Limpiar</button></div>
+    <div id="msgs" class="msgs" aria-live="polite"></div>
+    <div class="row">
+      <input id="chatInput" placeholder="Hacé una pregunta sobre tu pintura">
+      <button id="send" type="button" class="primary">Enviar</button>
+    </div>
+  </section>
+</main>
+
+<canvas id="captureCanvas" hidden></canvas>
+<div id="toastContainer" aria-live="polite"></div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_URL = (key, model) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+
+const PROFESSOR_PROMPT = `ROL
+Sos el profesor de pintura al óleo de la academia Victoria Machado. Sos docente universitario de arte, artista plástico profesional, especialista en oficio clásico y pintura figurativa, acrílico, óleo, pastel y dibujo. Tenés 25 años de trayectoria con más de 100 alumnos. Tu especialidad es la pintura al óleo de caballete y el estudio de la naturaleza — tanto figura humana como paisaje. Cruzás el rigor académico con la frescura de lo vivo. Diseñás lecciones sobre la marcha, según lo que cada alumno ve.
+
+FILOSOFÍA DE ENSEÑANZA
+No das clases de perfección. Das clases de OJO: cada corrección enseña un principio visual que valga para siempre. El alumno termina cada sesión sabiendo algo nuevo que podía no saber de su propio trabajo. Imponés estándares altos con paciencia musical. Corregís como un taller de conservación: por capas, sin miedo, sin quebrar lo que ya está bien.
+
+FORMATO DE RESPUESTA
+Respondés en formato de andamiaje: DIAGNÓSTICO → PRIORIDAD 1 → UBICACIÓN → MEZCLA → VALOR (1–5) → APLICACIÓN → NO TOCAR → DESPUÉS. Es lo mismo que hace un maestro que señala con la mano: el alumno sabe exactamente dónde y por dónde seguir.
+
+REGLAS
+No halagás por compromiso. No repetís lo que ya dijiste. No abrís una corrección si el trabajo avanza bien. No usás abstractos sin asidero. Nombrás mezclas posibles, no colores comerciales. Una corrección principal y como máximo un follow-up inmediato.
+
+RESPUESTA: devolvé SOLAMENTE un JSON válido con esta forma exacta:
+{
+  "spoken_summary": "resumen hablado bajo 90 palabras",
+  "frame_usable": true,
+  "capture_problems": [],
+  "observations": [{"dimension":"value","evidence":"qué ves","consequence":"por qué importa"}],
+  "corrections": [{
+    "action": "qué hacer",
+    "location": "dónde exactamente",
+    "region": {"x":0.5,"y":0.5,"width":0.2,"height":0.2},
+    "mixture": "receta de mezcla",
+    "amount": 3,
+    "application": "cómo se aplica",
+    "do_not_touch": "qué no tocar",
+    "verification": "cómo verificar después"
+  }],
+  "strength": "qué funciona y se debe preservar",
+  "temporal_comparison": null,
+  "value_metrics_summary": null
+}
+NO incluyas texto fuera del JSON. TODOS los textos en español rioplatense.`;
+
+const STYLE_PRINCIPLES = {
+  andrew_cadima: 'Usá profundidad atmosférica, paleta tierra restringida, bordes suaves a controlados.',
+  rembrandt: 'Claroscuro guiado por valor, empaste selectivo en luz, bordes perdidos en sombra.',
+  sorolla: 'Luz mediterránea vibrante, blancos cálidos, cambios de temperatura en la pincelada.',
+  zorn: 'Paleta cálida limitada, dibujo decidido, marcas económicas guiadas por valor.',
+  libre: 'Fundamentos de dibujo, valor, color, bordes, composición y manejo.',
+};
+
+const STYLE_MAP = {
+  andrew_cadima: 'Andrew Cadima',
+  rembrandt: 'Rembrandt',
+  sorolla: 'Sorolla',
+  zorn: 'Zorn',
+  libre: 'Libre',
+};
+
+// ── State ────────────────────────────────────────────────────────────
+let stream = null;
+let autoEnabled = false;
+let autoTimer = null;
+let analysisCount = 0;
+let voiceOn = false;
+let previousImageBase64 = null;
+let conversationHistory = [];
+let isAnalyzing = false;
+
+const $ = (sel) => document.querySelector(sel);
+
+// ── Toast ────────────────────────────────────────────────────────────
+function showToast(msg, type = 'info', ms = 4000) {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  $('#toastContainer').appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
+}
+
+// ── API Key ──────────────────────────────────────────────────────────
+function getApiKey() { return localStorage.getItem('GEMINI_API_KEY') || ''; }
+function setApiKey(k) { localStorage.setItem('GEMINI_API_KEY', k); }
+
+$('#saveKey').onclick = () => {
+  const k = $('#apikey').value.trim();
+  if (!k) return showToast('Pegá tu API Key', 'warn');
+  setApiKey(k);
+  $('#apikey').value = '';
+  showToast('Key guardada', 'ok');
+  updateHealth();
+};
+
+function updateHealth() {
+  const k = getApiKey();
+  $('#health').textContent = k ? `key OK · ${GEMINI_MODEL}` : 'sin API key';
+}
+
+// ── Camera ───────────────────────────────────────────────────────────
+$('#startCam').onclick = async () => {
+  if (stream) { stopCam(); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false,
+    });
+    $('#video').srcObject = stream;
+    $('#startCam').textContent = 'Desactivar cámara';
+    setStatus('cámara activa');
+    showToast('Cámara activa — encuadrá el lienzo', 'ok');
+  } catch (e) {
+    showToast('No se pudo acceder a la cámara', 'error');
+    setStatus('error cámara');
+  }
+};
+
+function stopCam() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  $('#video').srcObject = null;
+  $('#startCam').textContent = 'Activar cámara';
+  stopAuto();
+  setStatus('cámara apagada');
+}
+
+// ── Capture ──────────────────────────────────────────────────────────
+function captureFrame() {
+  const video = $('#video');
+  if (!video.videoWidth) return null;
+  const canvas = $('#captureCanvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.88);
+}
+
+// ── Gemini API ───────────────────────────────────────────────────────
+async function callGemini(imageBase64, userPrompt, retryCount = 0) {
+  const key = getApiKey();
+  if (!key) throw new Error('No hay API Key configurada. Pegala en el campo de arriba.');
+
+  const style = $('#style').value;
+  const mode = $('#critiqueMode').value;
+  const styleName = STYLE_MAP[style] || 'Libre';
+
+  const parts = [
+    { text: PROFESSOR_PROMPT },
+    { text: `\nESTILO ACTIVO: ${styleName}. ${STYLE_PRINCIPLES[style] || ''}` },
+    { text: `\nMODO DE CRÍTICA: ${mode === 'deep' ? 'Crítica profunda (observá TODAS las dimensiones de diseño)' : 'Próxima pincelada (una corrección concreta)'}` },
+  ];
+
+  if (imageBase64) {
+    parts.push({ inline_data: { mime_type: 'image/jpeg', data: imageBase64.split(',')[1] } });
+  }
+
+  if (previousImageBase64) {
+    parts.push({ text: '\n[IMAGEN ANTERIOR — compará el estado actual con este cuadro previo]' });
+    parts.push({ inline_data: { mime_type: 'image/jpeg', data: previousImageBase64.split(',')[1] } });
+  }
+
+  if (userPrompt) {
+    parts.push({ text: `\n[PETICIÓN DEL ALUMNO]: ${userPrompt}` });
+  }
+
+  const historyParts = conversationHistory.slice(-4).map(m => ({
+    text: `\n[${m.role === 'user' ? 'ALUMNO' : 'PROFESOR'}]: ${m.text}`,
+  }));
+  parts.push(...historyParts);
+
+  const body = { contents: [{ role: 'user', parts }], generationConfig: { temperature: 0.4 } };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+
+  try {
+    const res = await fetch(GEMINI_URL(key, GEMINI_MODEL), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const msg = err?.error?.message || res.statusText;
+      if (res.status === 429 && retryCount < 2) {
+        showToast('Cuota agotada — reintentando en 5s…', 'warn');
+        await new Promise(r => setTimeout(r, 5000));
+        return callGemini(imageBase64, userPrompt, retryCount + 1);
+      }
+      throw new Error(`Gemini: ${msg}`);
+    }
+
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Gemini no devolvió JSON válido');
+    return JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Gemini tardó demasiado (45s)');
+    throw e;
+  }
+}
+
+// ── Analyze ──────────────────────────────────────────────────────────
+async function analyze(opts = {}) {
+  if (isAnalyzing) return;
+  const key = getApiKey();
+  if (!key) { showToast('Pegá tu API Key arriba', 'warn'); return; }
+  if (!stream && !$('#video').srcObject) { showToast('Activá la cámara primero', 'warn'); return; }
+
+  isAnalyzing = true;
+  setStatus('analizando…');
+
+  const imageBase64 = captureFrame();
+  if (!imageBase64) { isAnalyzing = false; setStatus('error captura'); return; }
+
+  const userPrompt = opts.source === 'chat' ? opts.prompt : ($('#prompt').value || '').trim();
+
+  try {
+    const body = await callGemini(imageBase64, userPrompt);
+    renderCritique(body, opts);
+    previousImageBase64 = imageBase64;
+    analysisCount++;
+    $('#counter').textContent = `${analysisCount} análisis`;
+    setStatus('listo');
+
+    if (userPrompt) {
+      appendTextMessage(userPrompt, 'user');
+      conversationHistory.push({ role: 'user', text: userPrompt });
+    }
+
+    if (body.spoken_summary) {
+      conversationHistory.push({ role: 'model', text: body.spoken_summary });
+    }
+
+    // Show snapshot
+    $('#snapshotPreview').src = imageBase64;
+    $('#snapshotPreview').hidden = false;
+  } catch (e) {
+    showStatusError(e);
+    showToast(e?.message || 'Error al analizar', 'error', 6000);
+  } finally {
+    isAnalyzing = false;
+  }
+}
+
+// ── Render Critique ──────────────────────────────────────────────────
+function renderCritique(body, opts) {
+  const card = document.createElement('article');
+  card.className = 'msg assistant';
+
+  const sections = [];
+
+  if (body.frame_usable === false) {
+    sections.push(['⚠ NO USABLE', (body.capture_problems || []).join('. ')]);
+    if (body.capture_problems?.length) {
+      sections.push(['RECAPTURAR', 'Mejorá la imagen y volvé a analizar.']);
+    }
+  }
+
+  if (body.observations?.length) {
+    const obs = body.observations.map(o => {
+      const dim = o.dimension ? `[${o.dimension.toUpperCase()}] ` : '';
+      return `${dim}${o.evidence}${o.consequence ? ' — ' + o.consequence : ''}`;
+    }).join('\n');
+    sections.push(['DIAGNÓSTICO', obs]);
+  }
+
+  if (body.corrections?.length) {
+    body.corrections.forEach((c, i) => {
+      const label = i === 0 ? 'PRIORIDAD 1' : `FOLLOW-UP ${i}`;
+      const parts = [];
+      if (c.action) parts.push(`**${c.action}**`);
+      if (c.location) parts.push(`Ubicación: ${c.location}`);
+      if (c.mixture) parts.push(`Mezcla: ${c.mixture}`);
+      if (c.amount) parts.push(`Valor: ${c.amount}/5`);
+      if (c.application) parts.push(`Aplicación: ${c.application}`);
+      if (c.do_not_touch) parts.push(`NO TOCAR: ${c.do_not_touch}`);
+      if (c.verification) parts.push(`DESPUÉS: ${c.verification}`);
+      sections.push([label, parts.join('\n')]);
+    });
+  }
+
+  if (body.strength) {
+    sections.push(['LO QUE FUNCIONA', body.strength]);
+  }
+
+  if (body.temporal_comparison) {
+    sections.push(['COMPARACIÓN', body.temporal_comparison]);
+  }
+
+  if (body.value_metrics_summary) {
+    sections.push(['MÉTRICAS', body.value_metrics_summary]);
+  }
+
+  // Spoken summary as badge
+  if (body.spoken_summary) {
+    const badge = document.createElement('div');
+    badge.style.cssText = 'background:#16a34a22;color:#4ade80;padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:.85rem';
+    badge.textContent = `🎙 ${body.spoken_summary}`;
+    card.appendChild(badge);
+  }
+
+  sections.forEach(([label, text]) => {
+    const sec = document.createElement('section');
+    sec.innerHTML = `<div class="label">${label}</div><p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>`;
+    card.appendChild(sec);
+  });
+
+  if (!sections.length) {
+    card.innerHTML = `<p>${escapeHtml(JSON.stringify(body, null, 2))}</p>`;
+  }
+
+  $('#msgs').appendChild(card);
+  $('#msgs').scrollTop = $('#msgs').scrollHeight;
+
+  // Draw overlay if corrections have regions
+  drawOverlay(body.corrections);
+
+  // Speak
+  if (voiceOn && body.spoken_summary) speak(body.spoken_summary);
+}
+
+function appendTextMessage(text, role) {
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  el.textContent = text;
+  $('#msgs').appendChild(el);
+  $('#msgs').scrollTop = $('#msgs').scrollHeight;
+}
+
+// ── Overlay ──────────────────────────────────────────────────────────
+function drawOverlay(corrections) {
+  const canvas = $('#overlayCanvas');
+  const video = $('#video');
+  canvas.width = video.videoWidth || 0;
+  canvas.height = video.videoHeight || 0;
+  if (!canvas.width || !corrections?.length) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  corrections.forEach(c => {
+    if (!c.region) return;
+    const r = c.region;
+    const x = r.x * canvas.width;
+    const y = r.y * canvas.height;
+    const w = r.width * canvas.width;
+    const h = r.height * canvas.height;
+
+    ctx.strokeStyle = 'rgba(232, 213, 181, 0.8)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]);
+    ctx.strokeRect(x - w/2, y - h/2, w, h);
+    ctx.setLineDash([]);
+
+    // Label
+    ctx.fillStyle = 'rgba(232, 213, 181, 0.9)';
+    ctx.font = 'bold 14px Inter, system-ui';
+    ctx.fillText('PRIORIDAD 1', x - w/2, y - h/2 - 8);
+  });
+}
+
+// ── Auto ─────────────────────────────────────────────────────────────
+$('#toggleAuto').onclick = () => {
+  if (autoEnabled) { stopAuto(); return; }
+  autoEnabled = true;
+  $('#toggleAuto').textContent = 'Pausar';
+  setStatus('auto activo');
+  runAutoCycle();
+};
+
+function stopAuto() {
+  autoEnabled = false;
+  if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  $('#toggleAuto').textContent = 'Auto';
+  setStatus('auto detenido');
+}
+
+function runAutoCycle() {
+  if (!autoEnabled) return;
+  const interval = Number.parseInt($('#interval').value, 10) || 12000;
+  analyze({ source: 'auto' }).then(() => {
+    if (autoEnabled) {
+      autoTimer = setTimeout(runAutoCycle, interval);
+    }
+  }).catch(() => {
+    if (autoEnabled) {
+      autoTimer = setTimeout(runAutoCycle, interval);
+    }
+  });
+}
+
+// ── Voice ────────────────────────────────────────────────────────────
+$('#speak').onclick = () => {
+  voiceOn = !voiceOn;
+  $('#speak').textContent = voiceOn ? '🔇 Voz' : '🔊 Voz';
+  if (voiceOn && !window.speechSynthesis) {
+    voiceOn = false;
+    showToast('Voz no soportada en este navegador', 'warn');
+    $('#speak').textContent = '🔊 Voz';
+  }
+};
+
+function speak(text) {
+  if (!window.speechSynthesis) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'es-AR';
+    u.onerror = (e) => console.warn('speech error', e.error);
+    window.speechSynthesis.speak(u);
+  } catch (e) { console.warn('speak failed', e); }
+}
+
+// ── Chat ─────────────────────────────────────────────────────────────
+$('#send').onclick = () => {
+  const text = ($('#chatInput').value || '').trim();
+  if (!text) return;
+  $('#chatInput').value = '';
+  appendTextMessage(text, 'user');
+  conversationHistory.push({ role: 'user', text });
+  analyze({ source: 'chat', prompt: text });
+};
+
+$('#chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#send').click(); }
+});
+
+// ── Clear ────────────────────────────────────────────────────────────
+$('#clear').onclick = () => {
+  $('#msgs').innerHTML = '';
+  conversationHistory = [];
+  previousImageBase64 = null;
+  analysisCount = 0;
+  $('#counter').textContent = '0 análisis';
+  $('#snapshotPreview').hidden = true;
+  $('#overlayCanvas').getContext('2d').clearRect(0, 0, $('#overlayCanvas').width, $('#overlayCanvas').height);
+};
+
+// ── Keyboard ─────────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.code === 'Space') { e.preventDefault(); analyze({ source: 'keyboard' }); }
+});
+
+// ── Helpers ──────────────────────────────────────────────────────────
+function setStatus(msg) { $('#status').textContent = msg; }
+function showStatusError(e) { setStatus('error'); console.error(e); }
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Init ─────────────────────────────────────────────────────────────
+$('#apikey').value = '';
+updateHealth();
+</script>
+</body>
+</html>
