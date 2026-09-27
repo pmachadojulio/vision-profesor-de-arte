@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover - exercised only in minimal installs
     HAS_GENAI = False
 
 
-MODEL_DEFAULT = "gemini-3-flash-preview"
+MODEL_DEFAULT = "gemini-3.6-flash"
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 STATIC_DIR.mkdir(exist_ok=True)

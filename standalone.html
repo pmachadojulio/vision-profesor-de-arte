@@ -41,6 +41,22 @@ button.primary{color:#17130d;background:var(--accent);border-color:var(--accent)
 .apikey-bar{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
 .apikey-bar input{flex:1}
 .no-camera{text-align:center;padding:40px;color:var(--muted)}
+.study-btn.active{outline:2px solid var(--accent);outline-offset:1px}
+input[type=range]{accent-color:var(--accent)}
+#studyCanvas{width:100%}
+#studyDist{display:flex;gap:4px;align-items:flex-end;min-height:40px;margin-bottom:20px}
+#studyDist .bin{flex:1;border-radius:4px 4px 0 0;border:1px solid var(--line);position:relative;min-height:8px}
+#studyDist .bin span{position:absolute;left:0;right:0;bottom:-16px;text-align:center;font-size:.62rem;color:var(--muted)}
+.pal-strip{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 10px}
+.pal-sw{flex:1 1 56px;min-width:56px;border-radius:10px;border:1px solid var(--line);overflow:hidden;cursor:pointer;background:#111}
+.pal-sw.active{outline:2px solid var(--accent);outline-offset:1px}
+.pal-sw .c{height:44px}
+.pal-sw .p{font-size:.68rem;color:var(--muted);text-align:center;padding:2px}
+#palDetail{display:flex;gap:10px;align-items:flex-start;margin:2px 0 4px}
+#palBig{width:64px;height:64px;border-radius:12px;border:1px solid var(--line);flex-shrink:0}
+.pig{display:flex;align-items:center;gap:6px;font-size:.78rem;margin-top:4px}
+.pig i{width:18px;height:18px;border-radius:6px;border:1px solid var(--line);display:inline-block;flex-shrink:0}
+#palLimited{width:100%}
 </style>
 </head>
 <body>
@@ -102,7 +118,63 @@ button.primary{color:#17130d;background:var(--accent);border-color:var(--accent)
       <input id="chatInput" placeholder="Hacé una pregunta sobre tu pintura">
       <button id="send" type="button" class="primary">Enviar</button>
     </div>
+  <section class="card" id="valueCard">
+    <div class="controls">
+      <div class="row"><strong>Estudio de referencia</strong><span class="hint">una foto, dos lecturas</span></div>
+      <div class="row">
+        <button id="tabValores" type="button" class="primary">Valores</button>
+        <button id="tabColores" type="button">Colores</button>
+      </div>
+      <div class="row">
+        <input id="studyFile" type="file" accept="image/*" aria-label="Foto base">
+        <button id="studyFromCapture" type="button">Usar última captura</button>
+      </div>
+      <div id="panelValores">
+      <div class="row">
+        <button data-levels="0" type="button" class="study-btn">Grises</button>
+        <button data-levels="2" type="button" class="study-btn">Notan 2</button>
+        <button data-levels="3" type="button" class="study-btn active">3 valores</button>
+        <button data-levels="5" type="button" class="study-btn">5 valores</button>
+        <button data-levels="7" type="button" class="study-btn">7 valores</button>
+      </div>
+      <div class="row">
+        <label class="hint" for="studyBlur">Suavizar</label>
+        <input id="studyBlur" type="range" min="0" max="8" step="2" value="0">
+        <button id="studyDownload" type="button">Descargar PNG</button>
+      </div>
+      <canvas id="studyCanvas" class="snapshot" width="480" height="120"></canvas>
+      <div id="studyDist"></div>
+      <div class="hint">Momento 1 (3 valores): masas de luz-medio-sombra · Momento 2 (5): block-in · Momento 3 (7): transiciones. La distribución muestra % por banda.</div>
+      </div>
+      <div id="panelColores" hidden>
+    <div class="controls">
+      <div class="row">
+        <label class="hint" for="palCount">Colores</label>
+        <input id="palCount" type="range" min="3" max="8" step="1" value="6">
+        <span id="palCountVal" class="hint">6</span>
+        <button id="palExtract" type="button" class="primary">Extraer paleta</button>
+      </div>
+      <div id="palStrip" class="pal-strip"></div>
+      <div id="palDetail" hidden>
+        <div id="palBig"></div>
+        <div style="flex:1">
+          <div id="palInfo" class="hint"></div>
+          <div id="palPigs"></div>
+        </div>
+      </div>
+      <div class="row">
+        <button id="palRecipe" type="button">Receta con Gemini</button>
+        <span class="hint">tocá un color y pedí la receta en partes</span>
+      </div>
+      <div class="hint">Vista limitada (tu foto solo con la paleta extraída)</div>
+      <canvas id="palLimited" class="snapshot" width="480" height="120"></canvas>
+      <div class="hint">Extrae hasta 8 dominantes · el % indica su peso en la foto · la receta respeta pigmentos reales.</div>
+    </div>
   </section>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <canvas id="captureCanvas" hidden></canvas>
@@ -110,7 +182,7 @@ button.primary{color:#17130d;background:var(--accent);border-color:var(--accent)
 
 <script>
 // ── Constants ────────────────────────────────────────────────────────
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3.6-flash';
 const GEMINI_URL = (key, model) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
@@ -171,6 +243,7 @@ let autoTimer = null;
 let analysisCount = 0;
 let voiceOn = false;
 let previousImageBase64 = null;
+let lastAutoPromptSent = '';
 let conversationHistory = [];
 let isAnalyzing = false;
 
@@ -243,6 +316,57 @@ function captureFrame() {
 }
 
 // ── Gemini API ───────────────────────────────────────────────────────
+function computeTonalMeasurement() {
+  var canvas = document.getElementById("captureCanvas");
+  if (!canvas) { return ""; }
+  var w = canvas.width;
+  var h = canvas.height;
+  if (!w || !h) { return ""; }
+  var ctx = canvas.getContext("2d");
+  if (!ctx) { return ""; }
+  var imageData = null;
+  try {
+    imageData = ctx.getImageData(0, 0, w, h);
+  } catch (err) {
+    return "";
+  }
+  var data = imageData.data;
+  var total = w * h;
+  var zonas = [
+    { nombre: "Sombras puras", min: 0, max: 51, count: 0, acum: 0 },
+    { nombre: "Sombras", min: 52, max: 102, count: 0, acum: 0 },
+    { nombre: "Medios", min: 103, max: 153, count: 0, acum: 0 },
+    { nombre: "Luces", min: 154, max: 204, count: 0, acum: 0 },
+    { nombre: "Luces puras", min: 205, max: 255, count: 0, acum: 0 }
+  ];
+  var sumGlobal = 0;
+  var crushedCount = 0;
+  var blownCount = 0;
+  for (var i = 0; i < data.length; i += 4) {
+    var luma = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    sumGlobal += luma;
+    if (luma <= 2) { crushedCount++; }
+    if (luma >= 253) { blownCount++; }
+    for (var z = 0; z < zonas.length; z++) {
+      if (luma >= zonas[z].min && luma <= zonas[z].max) {
+        zonas[z].count++;
+        zonas[z].acum += luma;
+      }
+    }
+  }
+  var mediaGlobal = Math.round(sumGlobal / total);
+  var lineas = [];
+  lineas.push("[Zonas de luma (porcentaje del lienzo y luma media por zona)]:");
+  lineas.push("  - Sombras puras (0-51): " + Math.round(zonas[0].count * 10000 / total) / 100 + "% | luma media " + Math.round(zonas[0].acum / Math.max(zonas[0].count, 1)));
+  lineas.push("  - Sombras (52-102): " + Math.round(zonas[1].count * 10000 / total) / 100 + "% | luma media " + Math.round(zonas[1].acum / Math.max(zonas[1].count, 1)));
+  lineas.push("  - Medios (103-153): " + Math.round(zonas[2].count * 10000 / total) / 100 + "% | luma media " + Math.round(zonas[2].acum / Math.max(zonas[2].count, 1)));
+  lineas.push("  - Luces (154-204): " + Math.round(zonas[3].count * 10000 / total) / 100 + "% | luma media " + Math.round(zonas[3].acum / Math.max(zonas[3].count, 1)));
+  lineas.push("  - Luces puras (205-255): " + Math.round(zonas[4].count * 10000 / total) / 100 + "% | luma media " + Math.round(zonas[4].acum / Math.max(zonas[4].count, 1)));
+  lineas.push("Luma media global del lienzo: " + mediaGlobal + "/255 (" + Math.round(mediaGlobal * 100 / 255) + "% de valor)");
+  lineas.push("Recorte: " + Math.round(crushedCount * 10000 / total) / 100 + "% sombras aplastadas (luma <= 2) | " + Math.round(blownCount * 10000 / total) / 100 + "% luces quemadas (luma >= 253)");
+  return lineas.join("\n");
+}
+
 async function callGemini(imageBase64, userPrompt, retryCount = 0) {
   const key = getApiKey();
   if (!key) throw new Error('No hay API Key configurada. Pegala en el campo de arriba.');
@@ -270,7 +394,13 @@ async function callGemini(imageBase64, userPrompt, retryCount = 0) {
     parts.push({ text: `\n[PETICIÓN DEL ALUMNO]: ${userPrompt}` });
   }
 
-  const historyParts = conversationHistory.slice(-4).map(m => ({
+  
+  var medicionTonal = computeTonalMeasurement();
+  if (medicionTonal) {
+    parts.push({ text: "\n[MEDICIÓN TONAL REAL DEL LIENZO — usa SIEMPRE estos números en tu crítica y úsalos para proponer ajustes de valor con correcciones numéricas concretas]:\n" + medicionTonal });
+  }
+
+const historyParts = conversationHistory.slice(-4).map(m => ({
     text: `\n[${m.role === 'user' ? 'ALUMNO' : 'PROFESOR'}]: ${m.text}`,
   }));
   parts.push(...historyParts);
@@ -292,6 +422,9 @@ async function callGemini(imageBase64, userPrompt, retryCount = 0) {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       const msg = err?.error?.message || res.statusText;
+    if (!res.ok && (res.status === 400 || res.status === 404) && /(not found|no longer available|no longer supported|does not exist)/i.test(msg)) {
+      throw new Error('El modelo GEMINI_MODEL no está disponible en tu cuenta. Revisá GEMINI_MODEL en .env o esperá a que Google lo active.');
+    }
       if (res.status === 429 && retryCount < 2) {
         showToast('Cuota agotada — reintentando en 5s…', 'warn');
         await new Promise(r => setTimeout(r, 5000));
@@ -335,10 +468,11 @@ async function analyze(opts = {}) {
     $('#counter').textContent = `${analysisCount} análisis`;
     setStatus('listo');
 
-    if (userPrompt) {
+    if (userPrompt && !(opts.source === 'auto' && userPrompt === lastAutoPromptSent)) {
       appendTextMessage(userPrompt, 'user');
       conversationHistory.push({ role: 'user', text: userPrompt });
     }
+    if (opts.source === 'auto' && userPrompt) lastAutoPromptSent = userPrompt;
 
     if (body.spoken_summary) {
       conversationHistory.push({ role: 'model', text: body.spoken_summary });
@@ -450,7 +584,7 @@ function drawOverlay(corrections) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  corrections.forEach(c => {
+  corrections.forEach((c, i) => {
     if (!c.region) return;
     const r = c.region;
     const x = r.x * canvas.width;
@@ -467,7 +601,8 @@ function drawOverlay(corrections) {
     // Label
     ctx.fillStyle = 'rgba(232, 213, 181, 0.9)';
     ctx.font = 'bold 14px Inter, system-ui';
-    ctx.fillText('PRIORIDAD 1', x - w/2, y - h/2 - 8);
+    const label = i === 0 ? 'PRIORIDAD 1' : `FOLLOW-UP ${i}`;
+    ctx.fillText(label, x - w/2, y - h/2 - 8);
   });
 }
 
@@ -553,6 +688,363 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.code === 'Space') { e.preventDefault(); analyze({ source: 'keyboard' }); }
 });
+
+// ── Estudio de valores ───────────────────────────────────────────────
+let studyImg = null;
+let studyLevels = 3;
+
+function studySetImage(img) { studyImg = img; palImg = img; renderValueStudy(); if (palette.length || !document.querySelector('#panelColores').hidden) runPaletteExtract(); }
+
+$('#studyFile').onchange = (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = () => { URL.revokeObjectURL(url); studySetImage(img); showToast('Foto cargada — elegí Grises, Notan, 3, 5 o 7 valores', 'ok'); };
+  img.onerror = () => showToast('No se pudo leer la imagen', 'error');
+  img.src = url;
+};
+
+$('#studyFromCapture').onclick = () => {
+  const prev = $('#snapshotPreview');
+  if (!prev.src || prev.hidden) { showToast('Primero hacé "Analizar lienzo" para tener una captura', 'warn'); return; }
+  const img = new Image();
+  img.onload = () => studySetImage(img);
+  img.onerror = () => showToast('No se pudo usar la captura', 'error');
+  img.src = prev.src;
+};
+
+document.querySelectorAll('.study-btn').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('.study-btn').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    studyLevels = Number.parseInt(b.dataset.levels, 10) || 0;
+    renderValueStudy();
+  };
+});
+
+$('#studyBlur').oninput = () => renderValueStudy();
+
+$('#studyDownload').onclick = () => {
+  const canvas = $('#studyCanvas');
+  if (!canvas.width || !studyImg) { showToast('Cargá una foto primero', 'warn'); return; }
+  const a = document.createElement('a');
+  a.download = 'estudio-valores-' + (studyLevels || 'grises') + '.png';
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+  showToast('PNG descargado', 'ok');
+};
+
+function renderValueStudy() {
+  const canvas = $('#studyCanvas');
+  const ctx = canvas.getContext('2d');
+  if (!studyImg) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#b5aea4';
+    ctx.font = '14px Inter, system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Subí una foto o usá la última captura', canvas.width / 2, canvas.height / 2);
+    return;
+  }
+  const maxW = 640;
+  const scale = Math.min(1, maxW / studyImg.naturalWidth);
+  canvas.width = Math.max(1, Math.round(studyImg.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(studyImg.naturalHeight * scale));
+  const blur = Number.parseInt($('#studyBlur').value, 10) || 0;
+  try { ctx.filter = blur ? 'blur(' + blur + 'px)' : 'none'; } catch (err) {}
+  ctx.drawImage(studyImg, 0, 0, canvas.width, canvas.height);
+  try { ctx.filter = 'none'; } catch (err) {}
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const levels = studyLevels;
+  const counts = [];
+  for (let b = 0; b < Math.max(levels, 1); b++) { counts.push(0); }
+  for (let i = 0; i < data.length; i += 4) {
+    const luma = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    let v;
+    if (!levels) {
+      v = Math.round(luma);
+    } else {
+      const band = Math.min(levels - 1, Math.floor(luma * levels / 256));
+      v = Math.round((band + 0.5) * 255 / levels);
+      counts[band]++;
+    }
+    data[i] = v; data[i + 1] = v; data[i + 2] = v;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  renderStudyDist(counts, levels);
+}
+
+function renderStudyDist(counts, levels) {
+  const el = $('#studyDist');
+  el.innerHTML = '';
+  if (!levels) {
+    el.textContent = 'Gris continuo — elegí Notan, 3, 5 o 7 para ver la distribución por banda.';
+    return;
+  }
+  let total = 0;
+  for (let i = 0; i < counts.length; i++) { total += counts[i]; }
+  if (!total) { total = 1; }
+  for (let i = 0; i < counts.length; i++) {
+    const pct = Math.round(counts[i] * 1000 / total) / 10;
+    const gray = Math.round((i + 0.5) * 255 / levels);
+    const bin = document.createElement('div');
+    bin.className = 'bin';
+    bin.title = 'Valor ' + (i + 1) + ' de ' + levels + ': ' + pct + '% del lienzo';
+    bin.style.height = Math.max(8, Math.round(counts[i] * 56 / total)) + 'px';
+    bin.style.background = 'rgb(' + gray + ',' + gray + ',' + gray + ')';
+    const lab = document.createElement('span');
+    lab.textContent = pct + '%';
+    bin.appendChild(lab);
+    el.appendChild(bin);
+  }
+}
+
+// ── Paleta y mezclas ─────────────────────────────────────────────────
+const OIL_PIGMENTS = [
+  { n: 'Blanco de Titanio', c: [244, 241, 234] },
+  { n: 'Amarillo Cadmio Claro', c: [255, 200, 0] },
+  { n: 'Amarillo Ocre', c: [198, 138, 45] },
+  { n: 'Siena Natural', c: [160, 90, 44] },
+  { n: 'Rojo Cadmio', c: [224, 52, 31] },
+  { n: 'Carmesi Alizarina', c: [158, 27, 50] },
+  { n: 'Ultramar Frances', c: [43, 58, 158] },
+  { n: 'Azul Ceruleo', c: [63, 163, 199] },
+  { n: 'Verde Viridian', c: [64, 130, 109] },
+  { n: 'Sombra Tostada', c: [90, 58, 34] },
+  { n: 'Siena Tostada', c: [138, 75, 42] },
+  { n: 'Gris de Payne', c: [58, 63, 74] },
+  { n: 'Negro Marfil', c: [26, 26, 26] }
+];
+
+let palImg = null;
+let palette = [];
+let selectedIdx = 0;
+
+function colorDist(a, b) {
+  const r = a[0] - b[0], g = a[1] - b[1], bl = a[2] - b[2];
+  const rm = (a[0] + b[0]) / 2;
+  return Math.sqrt((2 + rm / 256) * r * r + 4 * g * g + (2 + (255 - rm) / 256) * bl * bl);
+}
+
+function rgbToHex(c) {
+  const h = (v) => ('0' + Math.max(0, Math.min(255, Math.round(v))).toString(16)).slice(-2);
+  return ('#' + h(c[0]) + h(c[1]) + h(c[2])).toUpperCase();
+}
+
+function zonaDe(luma) {
+  if (luma <= 51) return 'Sombras puras';
+  if (luma <= 102) return 'Sombras';
+  if (luma <= 153) return 'Medios';
+  if (luma <= 204) return 'Luces';
+  return 'Luces puras';
+}
+
+function nearestPigments(rgb, n) {
+  const scored = OIL_PIGMENTS.map((p) => ({ p: p, d: colorDist(rgb, p.c) }));
+  scored.sort((a, b) => a.d - b.d);
+  return scored.slice(0, n || 3);
+}
+
+function extractPalette(img, k) {
+  const maxW = 160;
+  const scale = Math.min(1, maxW / img.naturalWidth);
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d');
+  cx.drawImage(img, 0, 0, w, h);
+  const d = cx.getImageData(0, 0, w, h).data;
+  const px = [];
+  const step = Math.max(1, Math.floor((w * h) / 4000));
+  for (let i = 0; i < w * h; i += step) { px.push([d[i * 4], d[i * 4 + 1], d[i * 4 + 2]]); }
+  const centers = [];
+  for (let c = 0; c < k; c++) { centers.push(px[Math.floor(c * px.length / k)].slice()); }
+  const assign = new Array(px.length).fill(0);
+  for (let it = 0; it < 12; it++) {
+    let moved = false;
+    for (let i = 0; i < px.length; i++) {
+      let best = 0, bd = Infinity;
+      for (let c = 0; c < k; c++) { const dd = colorDist(px[i], centers[c]); if (dd < bd) { bd = dd; best = c; } }
+      if (assign[i] !== best) { assign[i] = best; moved = true; }
+    }
+    if (!moved) break;
+    const sum = [];
+    for (let c = 0; c < k; c++) { sum.push([0, 0, 0, 0]); }
+    for (let i = 0; i < px.length; i++) {
+      const s = sum[assign[i]];
+      s[0] += px[i][0]; s[1] += px[i][1]; s[2] += px[i][2]; s[3]++;
+    }
+    for (let c = 0; c < k; c++) {
+      if (sum[c][3]) { centers[c] = [Math.round(sum[c][0] / sum[c][3]), Math.round(sum[c][1] / sum[c][3]), Math.round(sum[c][2] / sum[c][3])]; }
+    }
+  }
+  const counts = new Array(k).fill(0);
+  for (let i = 0; i < assign.length; i++) { counts[assign[i]]++; }
+  const total = assign.length || 1;
+  const pal = centers.map((cc, idx) => ({ rgb: cc, pct: Math.round(counts[idx] * 1000 / total) / 10 }));
+  pal.sort((a, b) => b.pct - a.pct);
+  return pal;
+}
+
+function palLoadImage(img) {
+  palImg = img;
+  studyImg = img;
+  renderValueStudy();
+  runPaletteExtract();
+  showToast('Foto lista — valores y paleta actualizados', 'ok');
+}
+
+function runPaletteExtract() {
+  if (!palImg) { showToast('Elegí una foto o usá la última captura', 'warn'); return; }
+  const k = Number.parseInt($('#palCount').value, 10) || 6;
+  palette = extractPalette(palImg, k);
+  selectedIdx = 0;
+  renderPalStrip();
+  renderPalDetail();
+  renderLimited();
+}
+
+function renderPalStrip() {
+  const el = $('#palStrip');
+  el.innerHTML = '';
+  palette.forEach((col, i) => {
+    const sw = document.createElement('div');
+    sw.className = 'pal-sw' + (i === selectedIdx ? ' active' : '');
+    const hex = rgbToHex(col.rgb);
+    sw.title = hex + ' · ' + col.pct + '%';
+    const cbox = document.createElement('div');
+    cbox.className = 'c';
+    cbox.style.background = hex;
+    const lab = document.createElement('div');
+    lab.className = 'p';
+    lab.textContent = col.pct + '%';
+    sw.appendChild(cbox);
+    sw.appendChild(lab);
+    sw.onclick = () => { selectedIdx = i; renderPalStrip(); renderPalDetail(); };
+    el.appendChild(sw);
+  });
+}
+
+function renderPalDetail() {
+  const box = $('#palDetail');
+  if (!palette.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const col = palette[selectedIdx];
+  const hex = rgbToHex(col.rgb);
+  const luma = Math.round(0.299 * col.rgb[0] + 0.587 * col.rgb[1] + 0.114 * col.rgb[2]);
+  $('#palBig').style.background = hex;
+  $('#palInfo').textContent = hex + ' · RGB ' + col.rgb[0] + ',' + col.rgb[1] + ',' + col.rgb[2] + ' · luma ' + luma + ' (' + zonaDe(luma) + ') · ' + col.pct + '% de la foto';
+  const pigs = $('#palPigs');
+  pigs.innerHTML = '';
+  nearestPigments(col.rgb, 3).forEach((s) => {
+    const row = document.createElement('div');
+    row.className = 'pig';
+    const chip = document.createElement('i');
+    chip.style.background = rgbToHex(s.p.c);
+    const lab = document.createElement('span');
+    lab.textContent = s.p.n;
+    row.appendChild(chip);
+    row.appendChild(lab);
+    pigs.appendChild(row);
+  });
+}
+
+function renderLimited() {
+  const cv = $('#palLimited');
+  const cx = cv.getContext('2d');
+  if (!palImg || !palette.length) {
+    cx.fillStyle = '#000';
+    cx.fillRect(0, 0, cv.width, cv.height);
+    cx.fillStyle = '#b5aea4';
+    cx.font = '14px Inter, system-ui';
+    cx.textAlign = 'center';
+    cx.fillText('La vista limitada aparece tras extraer la paleta', cv.width / 2, cv.height / 2);
+    return;
+  }
+  const maxW = 320;
+  const scale = Math.min(1, maxW / palImg.naturalWidth);
+  cv.width = Math.max(1, Math.round(palImg.naturalWidth * scale));
+  cv.height = Math.max(1, Math.round(palImg.naturalHeight * scale));
+  cx.drawImage(palImg, 0, 0, cv.width, cv.height);
+  const imageData = cx.getImageData(0, 0, cv.width, cv.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const px = [data[i], data[i + 1], data[i + 2]];
+    let best = palette[0].rgb, bd = Infinity;
+    for (let c = 0; c < palette.length; c++) {
+      const dd = colorDist(px, palette[c].rgb);
+      if (dd < bd) { bd = dd; best = palette[c].rgb; }
+    }
+    data[i] = best[0]; data[i + 1] = best[1]; data[i + 2] = best[2];
+  }
+  cx.putImageData(imageData, 0, 0);
+}
+
+
+$('#palExtract').onclick = () => {
+  if (palImg || studyImg) { palImg = palImg || studyImg; runPaletteExtract(); return; }
+  showToast('Subí una foto arriba o usá la última captura', 'warn');
+};
+
+$('#palCount').oninput = () => {
+  $('#palCountVal').textContent = $('#palCount').value;
+  if (palImg) runPaletteExtract();
+};
+
+$('#palRecipe').onclick = async () => {
+  if (!palette.length) { showToast('Extraé primero la paleta', 'warn'); return; }
+  if (isAnalyzing) return;
+  const key = getApiKey();
+  if (!key) { showToast('Pegá tu API Key arriba', 'warn'); return; }
+  const prev = $('#snapshotPreview');
+  let ref = (prev.src && !prev.hidden) ? prev.src : null;
+  if (!ref && palImg) {
+    try {
+      const tc = document.createElement('canvas');
+      const sc = Math.min(1, 800 / palImg.naturalWidth);
+      tc.width = Math.max(1, Math.round(palImg.naturalWidth * sc));
+      tc.height = Math.max(1, Math.round(palImg.naturalHeight * sc));
+      tc.getContext('2d').drawImage(palImg, 0, 0, tc.width, tc.height);
+      ref = tc.toDataURL('image/jpeg', 0.88);
+    } catch (err) { ref = null; }
+  }
+  if (!ref) { showToast('Necesito la captura o la foto como referencia', 'warn'); return; }
+  const col = palette[selectedIdx];
+  const hex = rgbToHex(col.rgb);
+  const luma = Math.round(0.299 * col.rgb[0] + 0.587 * col.rgb[1] + 0.114 * col.rgb[2]);
+  const pigNames = nearestPigments(col.rgb, 3).map((s) => s.p.n).join(', ');
+  const prompt = 'RECETA DE MEZCLA: color objetivo ' + hex + ' (RGB ' + col.rgb[0] + ',' + col.rgb[1] + ',' + col.rgb[2] + ', luma ' + luma + '/255, zona ' + zonaDe(luma) + ', ocupa ' + col.pct + '% de la foto). Pigmentos cercanos en mi paleta: ' + pigNames + '. Devolvé en corrections[0].mixture la receta en partes (ej "7 Blanco de Titanio + 2 Amarillo Ocre + 1 Sombra Tostada") empezando por el componente más débil, y en spoken_summary la receta en una frase.';
+  isAnalyzing = true;
+  setStatus('pidiendo receta…');
+  try {
+    const body = await callGemini(ref, prompt);
+    renderCritique(body, {});
+    setStatus('listo');
+  } catch (e) {
+    showToast(e && e.message ? e.message : 'Error al pedir receta', 'error', 6000);
+    setStatus('error');
+  } finally {
+    isAnalyzing = false;
+  }
+};
+
+$('#tabValores').onclick = () => {
+  $('#panelValores').hidden = false;
+  $('#panelColores').hidden = true;
+  $('#tabValores').classList.add('primary');
+  $('#tabColores').classList.remove('primary');
+};
+
+$('#tabColores').onclick = () => {
+  $('#panelValores').hidden = true;
+  $('#panelColores').hidden = false;
+  $('#tabColores').classList.add('primary');
+  $('#tabValores').classList.remove('primary');
+  if (palImg && !palette.length) runPaletteExtract();
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function setStatus(msg) { $('#status').textContent = msg; }
